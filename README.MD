@@ -1,4 +1,4 @@
-# ATG2 Style Cells
+# ATG2 / STS1.5 Style Cells
 
 A simple naive implementation of Aardbei Textuur Gevaarte 2.0 / Solar Texture Studio 1.5 - Style Cells.
 
