@@ -3,6 +3,7 @@ use image::{ImageBuffer, Rgb};
 
 const SIZE: u32 = 256;
 const NUM_POINTS: usize = 20;
+const BLUR_RADIUS: i32 = 64;
 
 #[derive(Clone, Copy)]
 struct Point { x: f32, y: f32 }
@@ -54,11 +55,55 @@ fn generate_tileable_voronoi() -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         // Map to 0-255 range for the red channel
         let red_value = 255 - (normalized_distance * 255.0) as u8;
 
-        Rgb([red_value, 0, 0])
+        Rgb([red_value, 0, 0])  // Only red channel, others set to 0
     })
 }
 
+fn directional_blur(
+    img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    data_channel: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    blur_radius: i32,
+) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    let (width, height) = img.dimensions();
+    let mut output = ImageBuffer::new(width, height);
+
+    for y in 0..height {
+        for x in 0..width {
+            let direction = data_channel.get_pixel(x, y)[0] as f32 / 255.0 * 360.0;
+            let mut sum_r = 0.0;
+            let mut count = 0.0;
+
+            for i in -blur_radius..=blur_radius {
+                let angle = direction.to_radians();
+                let dx = (i as f32 * angle.cos()).round() as i32;
+                let dy = (i as f32 * angle.sin()).round() as i32;
+
+                let sample_x = (x as i32 + dx).rem_euclid(width as i32) as u32;
+                let sample_y = (y as i32 + dy).rem_euclid(height as i32) as u32;
+
+                let pixel = img.get_pixel(sample_x, sample_y);
+                sum_r += pixel[0] as f32;
+                count += 1.0;
+            }
+
+            let blurred_pixel = Rgb([
+                (sum_r / count).round() as u8,
+                0,
+                0,
+            ]);
+            output.put_pixel(x, y, blurred_pixel);
+        }
+    }
+
+    output
+}
+
 fn main() {
-    let texture = generate_tileable_voronoi();
-    texture.save("normalized_distance_voronoi.png").unwrap();
+    // Generate the Voronoi texture
+    let voronoi_texture = generate_tileable_voronoi();
+    voronoi_texture.save("voronoi_texture_red.png").unwrap();
+
+    // Apply directional blur using the Voronoi texture as both input and data channel
+    let blurred_texture = directional_blur(&voronoi_texture, &voronoi_texture, BLUR_RADIUS);
+    blurred_texture.save("blurred_voronoi_texture_red.png").unwrap();
 }
