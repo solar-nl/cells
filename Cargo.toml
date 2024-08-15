@@ -7,3 +7,4 @@ edition = "2021"
 
 rand = "0.8.5"
 image = "0.24.5"
+noise = "0.8"

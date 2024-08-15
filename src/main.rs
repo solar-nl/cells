@@ -1,9 +1,10 @@
 use rand::Rng;
 use image::{ImageBuffer, Rgb};
+use noise::{NoiseFn, Perlin};
 
 const SIZE: u32 = 256;
-const NUM_POINTS: usize = 20;
-const BLUR_RADIUS: i32 = 64;
+const NUM_POINTS: usize = 120;
+const BLUR_RADIUS: i32 = 2;
 
 #[derive(Clone, Copy)]
 struct Point { x: f32, y: f32 }
@@ -98,12 +99,54 @@ fn directional_blur(
     output
 }
 
+fn generate_perlin_noise() -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    let perlin = Perlin::new(0);
+    let octaves = 6;
+    let persistence = 0.5;
+    let lacunarity = 2.0;
+
+    ImageBuffer::from_fn(SIZE, SIZE, |x, y| {
+        let mut noise_value = 0.0;
+        let mut amplitude = 1.0;
+        let mut frequency = 1.0;
+        let mut max_value = 0.0;
+
+        for _ in 0..octaves {
+            let nx = x as f64 / SIZE as f64 * frequency;
+            let ny = y as f64 / SIZE as f64 * frequency;
+
+            noise_value += perlin.get([nx, ny]) * amplitude;
+            
+            max_value += amplitude;
+            amplitude *= persistence;
+            frequency *= lacunarity;
+        }
+
+        // Normalize the noise value
+        noise_value = (noise_value / max_value + 1.0) / 2.0;
+        let intensity = (noise_value * 255.0) as u8;
+
+        Rgb([intensity, 0, 0])
+    })
+}
+
+
 fn main() {
     // Generate the Voronoi texture
     let voronoi_texture = generate_tileable_voronoi();
     voronoi_texture.save("voronoi_texture_red.png").unwrap();
 
+
+    // Generate and save the Perlin noise texture
+    let perlin_texture = generate_perlin_noise();
+    perlin_texture.save("perlin_noise_texture.png").unwrap();
+
     // Apply directional blur using the Voronoi texture as both input and data channel
-    let blurred_texture = directional_blur(&voronoi_texture, &voronoi_texture, BLUR_RADIUS);
+    let blurred_texture = directional_blur(&voronoi_texture, &voronoi_texture, BLUR_RADIUS*1);
+    let blurred_texture = directional_blur(&blurred_texture, &voronoi_texture, BLUR_RADIUS*2);
+    let blurred_texture = directional_blur(&blurred_texture, &voronoi_texture, BLUR_RADIUS*4);
+    let blurred_texture = directional_blur(&blurred_texture, &voronoi_texture, BLUR_RADIUS*8);
+
     blurred_texture.save("blurred_voronoi_texture_red.png").unwrap();
+    
 }
