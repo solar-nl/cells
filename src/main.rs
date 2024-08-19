@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use rand::Rng;
 use image::{ImageBuffer, Rgb};
 use noise::{NoiseFn, Perlin};
@@ -77,13 +78,16 @@ fn generate_tileable_voronoi() -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         .collect();
 
     // First pass: find the maximum distance
-    let max_distance = (0..SIZE).flat_map(|x| (0..SIZE).map(move |y| (x, y)))
+    let max_distance = (0..SIZE)
+        .into_par_iter()
+        .flat_map(|x| (0..SIZE).into_par_iter().map(move |y| (x, y)))
         .map(|(x, y)| {
-            let current = Point { 
-                x: x as f32 / SIZE as f32, 
-                y: y as f32 / SIZE as f32 
+            let current = Point {
+                x: x as f32 / SIZE as f32,
+                y: y as f32 / SIZE as f32,
             };
-            points.iter()
+            points
+                .par_iter()
                 .map(|&p| toroidal_distance(current, p))
                 .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .unwrap()
@@ -92,24 +96,22 @@ fn generate_tileable_voronoi() -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         .unwrap();
 
     // Second pass: generate the image
-    ImageBuffer::from_fn(SIZE, SIZE, |x, y| {
-        let current_point = Point { 
-            x: x as f32 / SIZE as f32, 
-            y: y as f32 / SIZE as f32 
+    ImageBuffer::from_par_fn(SIZE, SIZE, |x, y| {
+        let current_point = Point {
+            x: x as f32 / SIZE as f32,
+            y: y as f32 / SIZE as f32,
         };
-
-        let min_distance = points.iter()
+        let min_distance = points
+            .par_iter()
             .map(|&p| toroidal_distance(current_point, p))
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
 
         // Normalize the distance and invert it (distant = brighter)
         let normalized_distance = 1.0 - (min_distance / max_distance);
-        
         // Map to 0-255 range for the red channel
         let red_value = 255 - (normalized_distance * 255.0) as u8;
-
-        Rgb([red_value, 0, 0])  // Only red channel, others set to 0
+        Rgb([red_value, 0, 0]) // Only red channel, others set to 0
     })
 }
 
@@ -157,35 +159,24 @@ fn directional_blur(
     blur_radius: i32,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
     let (width, height) = img.dimensions();
-    let mut output = ImageBuffer::new(width, height);
-
-    for y in 0..height {
-        for x in 0..width {
-            let direction = direction_channel.get_pixel(x, y)[0] as f32 / 255.0 * 360.0;
-            let mut sum_red = 0.0;
-            let mut count = 0.0;
-
-            for i in -blur_radius..=blur_radius {
-                let angle = direction.to_radians();
+    let output = ImageBuffer::from_par_fn(width, height, |x, y| {
+        let direction = direction_channel.get_pixel(x, y)[0] as f32 / 255.0 * 360.0;
+        let angle = direction.to_radians();
+        
+        let sum_red: f32 = (-blur_radius..=blur_radius)
+            .map(|i| {
                 let delta_x = (i as f32 * angle.cos()).round() as i32;
                 let delta_y = (i as f32 * angle.sin()).round() as i32;
-
                 let sample_x = (x as i32 + delta_x).rem_euclid(width as i32) as u32;
                 let sample_y = (y as i32 + delta_y).rem_euclid(height as i32) as u32;
+                img.get_pixel(sample_x, sample_y)[0] as f32
+            })
+            .sum();
 
-                let pixel = img.get_pixel(sample_x, sample_y);
-                sum_red += pixel[0] as f32;
-                count += 1.0;
-            }
-
-            let blurred_pixel = Rgb([
-                (sum_red / count).round() as u8,
-                0,
-                0,
-            ]);
-            output.put_pixel(x, y, blurred_pixel);
-        }
-    }
+        let count = (2 * blur_radius + 1) as f32;
+        let blurred_value = (sum_red / count).round() as u8;
+        Rgb([blurred_value, 0, 0])
+    });
 
     output
 }
@@ -323,7 +314,8 @@ fn main() {
     voronoi_texture.save("voronoi_texture_red.png").unwrap();
 
     // Generate and save the Perlin noise texture
-    let perlin_texture = generate_perlin_noise();
+    let mut perlin_texture = generate_perlin_noise();
+    perlin_texture = normalize_image(&perlin_texture);
     perlin_texture.save("perlin_noise_texture.png").unwrap();
     
     // Apply directional blur using the Voronoi texture as both input and data channel

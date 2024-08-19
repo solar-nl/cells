@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 
 rand = "0.8.5"
-image = "0.24.5"
+image = "0.25.2"
 noise = "0.8"
+rayon = "1.5"
